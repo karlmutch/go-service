@@ -15,7 +15,6 @@ import (
 // Functions related to networking needs for the server
 
 // GetFreePort will find and return a port number that is found to be available
-//
 func GetFreePort(hint string) (port int, err kv.Error) {
 	addr, errGo := net.ResolveTCPAddr("tcp", hint)
 	if errGo != nil {
@@ -37,7 +36,6 @@ func GetFreePort(hint string) (port int, err kv.Error) {
 
 // GetHostName returns a human readable host name that contains as much useful context
 // as can be gathered
-//
 func GetHostName() (name string) {
 
 	name = fqdn.Get()
