@@ -53,7 +53,9 @@ chmod +x $GOPATH/bin/stencil
 go get github.com/alvaroloes/enumer@455e9a94796c0e108c38e253b67307736fc4b200
 ----
 
+----
 stencil -supress-warnings < Dockerfile | docker build --network=host -
+----
 
 == Developer tooling
 
