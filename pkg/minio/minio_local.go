@@ -15,6 +15,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"path"
@@ -300,10 +301,59 @@ func (mts *MinioTestServer) writeCfg() (cfgDir string, err kv.Error) {
 	return cfgDir, nil
 }
 
+// downloadFile will retrieve a file from a web server and write it to a file name
+// supplied in the fn parameter
+func downloadFile(url string, fn string) (err kv.Error) {
+	resp, errGo := http.Get(url)
+	if errGo != nil {
+		return kv.Wrap(errGo).With("url", url).With("stack", stack.Trace().TrimRuntime())
+	}
+	defer resp.Body.Close()
+
+	out, errGo := os.Create(fn)
+	if errGo != nil {
+		return kv.Wrap(errGo).With("url", url).With("stack", stack.Trace().TrimRuntime())
+	}
+	defer out.Close()
+
+	_, errGo = io.Copy(out, resp.Body)
+	if errGo != nil {
+		return kv.Wrap(errGo).With("url", url).With("stack", stack.Trace().TrimRuntime())
+	}
+	return nil
+}
+
+// installMinio will download the linux version of the minio server into a temporary
+// directory specified using the installDir parameter.
+func installMinio(installDir string) (installFn string, err kv.Error) {
+	// Check if the installDir exists
+	if _, errGo := os.Stat(installDir); errGo != nil {
+		return "", kv.Wrap(errGo).With("stack", stack.Trace().TrimRuntime())
+	}
+
+	installFn = path.Join(installDir, "minio")
+	downloadUrl := "https://dl.min.io/server/minio/release/linux-amd64/minio"
+	err = downloadFile(downloadUrl, installFn)
+	if err != nil {
+		return "", err
+	}
+	// Set the execute bit on the download file
+	if errGo := os.Chmod(installFn, 0755); errGo != nil {
+		// Delete the downloaded file to clean things up in the event that the execute bit
+		// could not be successfully set
+		_ = os.Remove(installFn)
+		return "", kv.Wrap(errGo).With("stack", stack.Trace().TrimRuntime())
+	}
+
+	return installFn, nil
+}
+
 // startLocalMinio will fork off a running minio server with an empty data store
 // that can be used for testing purposes.  This function does not block,
 // however it does start a go routine
 func (mts *MinioTestServer) startLocalMinio(ctx context.Context, retainWorkingDirs bool, errC chan kv.Error) {
+
+	var err kv.Error
 
 	// Default to the case that another pod for external host has a running minio server for us
 	// to use during testing
@@ -321,24 +371,6 @@ func (mts *MinioTestServer) startLocalMinio(ctx context.Context, retainWorkingDi
 	// minio instance within the container or machine the test is run on
 	//
 	if len(*minioTestServer) == 0 {
-		// First check that the minio executable is present on the test system
-		//
-		// We are using the executable because the dependency hierarchy of minio
-		// is very tangled and so it is very hard to embeed for now, Go 1.10.3
-		execPath, errGo := exec.LookPath("minio")
-		if errGo != nil {
-			errC <- kv.Wrap(errGo, "please install minio into your path").With("path", os.Getenv("PATH")).With("stack", stack.Trace().TrimRuntime())
-			return
-		}
-
-		// Get a free server listening port for our test
-		port, err := network.GetFreePort("127.0.0.1:0")
-		if err != nil {
-			errC <- err
-			return
-		}
-
-		mts.Address = fmt.Sprintf("127.0.0.1:%d", port)
 
 		// Initialize the data directory for the file server
 		storageDir, errGo := os.MkdirTemp("", xid.New().String())
@@ -353,6 +385,27 @@ func (mts *MinioTestServer) startLocalMinio(ctx context.Context, retainWorkingDi
 			os.RemoveAll(storageDir)
 			return
 		}
+
+		// Check that the minio executable is present on the test system
+		//
+		// We are using the executable because minio uses the AGPL license which is
+		// a copyleft license and would pollute client code using this library
+		execPath, errGo := exec.LookPath("minio")
+		if errGo != nil {
+			if execPath, err = installMinio(storageDir); err != nil {
+				errC <- kv.Wrap(err, "please install minio into your path").With("path", os.Getenv("PATH")).With("stack", stack.Trace().TrimRuntime())
+				return
+			}
+		}
+
+		// Get a free server listening port for our test
+		port, err := network.GetFreePort("127.0.0.1:0")
+		if err != nil {
+			errC <- err
+			return
+		}
+
+		mts.Address = fmt.Sprintf("127.0.0.1:%d", port)
 
 		// If we see no credentials were supplied for a local test, the typical case
 		// then supply some defaults
