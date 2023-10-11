@@ -1,6 +1,6 @@
 module github.com/karlmutch/go-service
 
-go 1.21.3
+go 1.21
 
 require (
 	github.com/aws/aws-sdk-go v1.45.24
