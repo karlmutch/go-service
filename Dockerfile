@@ -24,7 +24,7 @@ RUN \
     chmod +x /usr/local/bin/stencil && \
     chmod +x /usr/local/bin/github-release
 
-ENV GO_VERSION 1.21.1
+ENV GO_VERSION 1.21.3
 
 ENV USER {{.duat.userName}}
 ENV USER_ID {{.duat.userID}}
