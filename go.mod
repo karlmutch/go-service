@@ -3,7 +3,7 @@ module github.com/karlmutch/go-service
 go 1.21
 
 require (
-	github.com/aws/aws-sdk-go v1.47.4
+	github.com/aws/aws-sdk-go v1.48.9
 	github.com/davecgh/go-spew v1.1.1
 	github.com/dustin/go-humanize v1.0.1
 	github.com/go-stack/stack v1.8.1
