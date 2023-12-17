@@ -57,6 +57,7 @@ go get github.com/alvaroloes/enumer@455e9a94796c0e108c38e253b67307736fc4b200
 stencil -supress-warnings < Dockerfile | docker build --network=host -
 ----
 
+Release tooling is done using Release Please from Goofle.  Release please uses conventional commits to trigger releases.  Please see more at https://github.com/google-github-actions/release-please-action#release-please-action
 == Developer tooling
 
 rancher desktop
