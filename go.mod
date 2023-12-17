@@ -19,7 +19,7 @@ require (
 	github.com/rs/xid v1.5.0
 	github.com/shirou/gopsutil v3.21.11+incompatible
 	go.opentelemetry.io/otel v1.21.0
-	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.19.0
+	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.21.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc v1.19.0
 	go.opentelemetry.io/otel/sdk v1.21.0
 	go.uber.org/atomic v1.11.0
