@@ -7,6 +7,7 @@ package server // import "github.com/karlmutch/go-service/pkg/server"
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"os"
 	"time"
@@ -21,9 +22,10 @@ import (
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/propagation"
+	"go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
-	semconv "go.opentelemetry.io/otel/semconv/v1.7.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.21.0"
 
 	"github.com/go-stack/stack"
 	"github.com/karlmutch/kv"
@@ -67,6 +69,25 @@ type StartTelemetryOpts struct {
 // parameters for the OTel code.
 func StartTelemetry(ctx context.Context, options StartTelemetryOpts, logger slog.Logger) (newCtx context.Context, err kv.Error) {
 
+	// Taken from https://opentelemetry.io/docs/instrumentation/go/getting-started/
+	var shutdownFuncs []func(context.Context) error
+
+	// shutdown calls cleanup functions registered via shutdownFuncs.
+	// The errors from the calls are joined.
+	// Each registered cleanup will be invoked once.
+	shutdown := func(ctx context.Context) (errGo error) {
+		for _, fn := range shutdownFuncs {
+			errGo = errors.Join(errGo, fn(ctx))
+		}
+		shutdownFuncs = nil
+		return errGo
+	}
+
+	// handleErr calls shutdown for cleanup and makes sure that all errors are returned.
+	handleErr := func(inErr error) (err kv.Error) {
+		return kv.Wrap(errors.Join(inErr, shutdown(ctx))).With("stack", stack.Trace().TrimRuntime())
+	}
+
 	endpoint := options.ApiEndpoint
 	if len(endpoint) == 0 {
 		endpoint = defaultOTelEndpoint
@@ -84,7 +105,7 @@ func StartTelemetry(ctx context.Context, options StartTelemetryOpts, logger slog
 	client := otlptracegrpc.NewClient(opts...)
 	exp, errGo := otlptrace.New(ctx, client)
 	if errGo != nil {
-		return ctx, kv.Wrap(errGo).With("stack", stack.Trace().TrimRuntime())
+		return ctx, handleErr(errGo)
 	}
 
 	// Create a new tracer provider with a batch span processor and the otlp exporter.
@@ -93,12 +114,19 @@ func StartTelemetry(ctx context.Context, options StartTelemetryOpts, logger slog
 		sdktrace.WithBatcher(exp),
 		sdktrace.WithResource(resource.NewWithAttributes(semconv.SchemaURL, semconv.ServiceNameKey.String(options.ServiceName))),
 	)
+	shutdownFuncs = append(shutdownFuncs, tp.Shutdown)
 
 	// Set the Tracer Provider and the W3C Trace Context propagator as globals
 	otel.SetTracerProvider(tp)
 	otel.SetTextMapPropagator(
 		propagation.NewCompositeTextMapPropagator(propagation.TraceContext{}, propagation.Baggage{}),
 	)
+
+	meterProvider := metric.NewMeterProvider(
+		metric.WithResource(resource.NewWithAttributes(semconv.SchemaURL, semconv.ServiceNameKey.String(options.ServiceName))),
+	)
+	shutdownFuncs = append(shutdownFuncs, meterProvider.Shutdown)
+	otel.SetMeterProvider(meterProvider)
 
 	members := []baggage.Member{}
 
@@ -156,7 +184,7 @@ func StartTelemetry(ctx context.Context, options StartTelemetryOpts, logger slog
 		shutCtx, cancel := context.WithTimeout(context.Background(), defaultShutdownTimeout)
 		defer cancel()
 
-		if errGo := tp.Shutdown(shutCtx); errGo != nil {
+		if errGo := shutdown(shutCtx); errGo != nil {
 			logger.WarnContext(ctx, "error", errGo)
 		}
 	}()
